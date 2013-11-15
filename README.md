@@ -13,3 +13,10 @@ then run
 ```php
 php -f sunny.php
 ```
+
+create more crawlers for specific websites and put it in the *plugins* directory!
+
+##### todo sites:
+
+- mp3skull.com
+- musicaddict.com

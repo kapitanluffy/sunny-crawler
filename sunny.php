@@ -1,6 +1,7 @@
 #!/usr/bin/php
 <?php
 include 'lib/sunny.php';
+include 'plugins/mp3rehab.com.php';
 
 $spider = new Mp3rehab('http://mp3rehab.com', $db);
 
