@@ -40,8 +40,8 @@ class Sunny {
 		echo "Loaded {$result->num_rows} links. Resuming in 3s\r\n";
 		sleep(3);
 
-		$links = count($this->crawl) - 1;
 		for($i=0; $i <= count($this->crawl); $i++) {
+			$links = count($this->crawl) - 1;
 			echo "[{$i}/{$links}] Crawling {$this->crawl[$i]}\r\n";
 			$this->harvest($this->crawl[$i], $this->site);
 		}
@@ -96,13 +96,13 @@ class Sunny {
 		$response = $this->http_request($url, $options);
 		$body = str_get_html($response['contents']);
 
-		if(in_array($url, $this->crawl)) {
-			$this->db->query("UPDATE site_index SET indexed = '1' WHERE link='{$url}';");
-		}
-
 		if(! is_object($body)) {
 			echo "No response content: {$url}\r\n";
 			return false;
+		}
+
+		if(in_array($url, $this->crawl)) {
+			$this->db->query("UPDATE site_index SET indexed = '1' WHERE link='{$url}';");
 		}
 
 		$links = $body->find('a');
