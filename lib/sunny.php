@@ -114,10 +114,10 @@ class Sunny {
 				$result = $this->db->query("SELECT link FROM site_index WHERE link='{$link->href}'");
 				if($result->num_rows <= 0){
 					$result = $this->db->query("INSERT INTO site_index VALUES(null, '1', '{$link->href}', '0')");
+					$this->crawl[] = $link->href;
 				} else {
 					echo "Has indexed: {$link->href}\r\n";
 				}
-				$this->crawl[] = $link->href;
 			}
 		}
 
