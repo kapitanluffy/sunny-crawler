@@ -42,14 +42,8 @@ class Sunny {
 
 		$links = count($this->crawl) - 1;
 		for($i=0; $i <= count($this->crawl); $i++) {
-			$result = $this->db->query("SELECT link FROM site_index WHERE site_id={$site_id} AND link='{$this->crawl[$i]}' AND indexed=1");
-			if($result->num_rows <= 0){
-				echo "[{$i}/{$links}] Crawling {$this->crawl[$i]}\r\n";
-				$this->harvest($this->crawl[$i], $this->site);
-			}
-			else {
-				echo "[{$i}/{$links}] Skipping {$this->crawl[$i]}\r\n";
-			}
+			echo "[{$i}/{$links}] Crawling {$this->crawl[$i]}\r\n";
+			$this->harvest($this->crawl[$i], $this->site);
 		}
 	}
 
@@ -117,7 +111,12 @@ class Sunny {
 		foreach($links as $link) {
 			if(! in_array($link->href, $this->crawl) && preg_match("#^{$this->site}#", $link->href, $m))
 			{
-				$this->db->query("INSERT INTO site_index VALUES(null, '1', '{$link->href}', '0');");
+				$result = $this->db->query("SELECT link FROM site_index WHERE link='{$link->href}'");
+				if($result->num_rows <= 0){
+					$result = $this->db->query("INSERT INTO site_index VALUES(null, '1', '{$link->href}', '0')");
+				} else {
+					echo "Has indexed: {$link->href}\r\n";
+				}
 				$this->crawl[] = $link->href;
 			}
 		}
