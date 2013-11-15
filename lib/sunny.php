@@ -37,6 +37,8 @@ class Sunny {
 		while ($row = $result->fetch_assoc()) {
 			$this->crawl[] = $row['link'];
 		}
+		echo "Loaded {$result->num_rows} links. Resuming in 3s\r\n";
+		sleep(3);
 
 		$links = count($this->crawl) - 1;
 		for($i=0; $i <= count($this->crawl); $i++) {

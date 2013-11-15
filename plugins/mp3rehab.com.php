@@ -56,7 +56,10 @@ class Mp3rehab extends Sunny {
 		}
 
 		$this->body = parent::harvest($url, $referrer);
-
+		if(! is_object($this->body)) {
+			return false;
+		}
+		
 		$links = $this->get_meta_info();
 		$links['link'] = $this->get_download_link($url);
 
