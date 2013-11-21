@@ -36,12 +36,16 @@ class Mp3rehab extends Sunny {
 		$metas = $body->find('.infotext a');
 		if(! $metas) $metas = $body->find('.fileinfo a');
 
-		if(! $links || ! $metas) return false;
+		if(! $links || ! $metas) {
+			return false;
+		}
 
 		$link = $this->get_download_link($links[0], $url);
 		$meta = $this->parse_meta($metas);
 
-		if(! $link || ! $meta['artist'] == '') return false;
+		if(! $link || $meta['artist'] == '') {
+			return false;
+		}
 
 		$link = $this->sanitize_url($link);
 		$artist = $this->sanitize_url($meta['artist']);

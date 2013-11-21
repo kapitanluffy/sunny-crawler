@@ -9,14 +9,17 @@ class Mp3skull extends Sunny {
 	public function get_download_link($link, $referer) {
 		$options = array(
 			CURLOPT_REFERER =>$referer,
-			CURLOPT_FOLLOWLOCATION => false,
+			CURLOPT_FOLLOWLOCATION => true,
 			CURLOPT_NOBODY => true,
 		);
 		$link = str_replace(' ', '%20', $link->href);
-		$response = $this->curl->get($link, $options, 10);;
+		$response = $this->curl->get($link, $options, 10);
 		if(!preg_match('#(200|301|302|303|307|308)#', $response['headers']['status'])) {
 			echo "Not OK [{$response['headers']['status']}]: {$link}\r\n";
 			return false;
+		}
+		if(isset($response['headers']['Location'])) {
+			$link = $response['headers']['Location'];
 		}
 
 		return $link;
@@ -36,6 +39,7 @@ class Mp3skull extends Sunny {
 	public function on_body($url, $body) {
 		$targets = $body->find('#song_html #right_song');
 		$data = array();
+		$ignore_url_pattern = implode('|', $this->ignore_url_pattern);
 
 		if(@empty($targets)) return false;
 
@@ -43,11 +47,15 @@ class Mp3skull extends Sunny {
 			$meta = $block->find('b');
 			$link = $block->find('a[target="_blank"]');
 
+			if(preg_match('#('. $ignore_url_pattern .')#', $link[0]->href)) {
+				echo "Ignored: {$link[0]->href}\r\n";
+				continue;
+			}
+
 			$link = $this->get_download_link($link[0], $url);
 			$meta = $this->parse_meta($meta[0]);
 
 			if( !$meta || !preg_match('#\.mp3$#', $link)) continue;
-
 
 			$link = $this->sanitize_url($link);
 			$artist = $this->sanitize_url($meta['artist']);

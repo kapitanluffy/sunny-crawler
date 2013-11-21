@@ -11,8 +11,7 @@ $threads = 10;
 $limit = 100;
 
 $ignore = array(
-			'dl\.php', 
-			'\&amp\;sort\=',
+			'4shared\.com',
 		);
 
 /* create a new sunny crawler */
@@ -28,6 +27,7 @@ $sunny = new Mp3skull($site, $db);
 	$sunny->init($table, $threads, $limit);
 
 /* uncomment this section to start the crawler */
-	$sunny->crawl($table, $threads, $limit);
+	// $sunny->crawl($table, $threads, $limit);
+	$sunny->crawl_all($table, $threads, $limit);
 
 ?>

@@ -28,7 +28,7 @@ $sunny = new Mp3rehab($site, $db);
 	$sunny->init($table, $threads, $limit);
 
 /* uncomment this section to start the crawler */
-	$sunny->crawl($table, $threads, $limit);
-	// $sunny->crawl_all($table, $threads, $limit);
+	// $sunny->crawl($table, $threads, $limit);
+	$sunny->crawl_all($table, $threads, $limit);
 
 ?>

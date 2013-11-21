@@ -14,7 +14,7 @@ class Sunny {
 	/* storage for harvested links */
 	public $crawl = array();
 	/* current pointer for the crawl */
-	public $crawl_index = array();
+	public $crawl_index = 0;
 
 	/* database link */
 	public $db;
@@ -25,6 +25,7 @@ class Sunny {
 	private $append_queue = false;
 	protected $queued = 0;
 	protected $ignore_url_pattern = array('javascript\:','mailto\:', '\#');
+	public $current_links = 0;
 	public $total_links = 0;
 
 	/* for elapsed time */
@@ -45,6 +46,7 @@ class Sunny {
 
 		pcntl_signal(SIGTERM, array($this, 'quit'));
 		pcntl_signal(SIGINT, array($this, 'quit'));
+		set_error_handler(array($this, 'on_error'));
 	}
 
 	public function init($table, $threads = 10, $limit = 100) {
@@ -97,48 +99,67 @@ class Sunny {
 		exit;
 	}
 
+	private function on_error($errno , $errstr, $errfile, $errline) {
+		echo "\r\n\r\n";
+		echo "ERROR #$errno: $errstr on $errfile line $errline";
+		echo "\r\n\r\n";
+		$this->quit();
+	}
+
+	private function prompt($msg = "Press enter to start") {
+		echo "$msg\r\n";
+		$fh = fopen("php://stdin", "r"); 
+		$a = fgets( $fh); 
+		fclose($fh); 
+	}
+
 	public function crawl_all($table, $threads = 10, $limit = 100) {
 		$this->table = $table;
 		$offset = 0;
-		$max = $limit;
-		echo "Crawling all links! Press CTRL+C to exit\r\n";
 		do {
+			echo "\r\nCrawling all links! Press CTRL+C to exit\r\n";
 			$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0 LIMIT $offset,$limit");
 			if($result->num_rows > 0) {
 				$this->_crawl_algo($result, $threads);
 			}
 			$offset += $limit;
-			$max += $limit;
 		} while($result && $result->num_rows > 0);
 	}
 
 	function _crawl_algo($result, $threads) {
+		$this->crawl = array();
+		$this->crawl_index = 0;
+		$ignore_url_pattern = implode('|', $this->ignore_url_pattern);
+
 		while ($row = $result->fetch_assoc()) {
 			$this->crawl[] = $row['link'];
 		}
 		echo "Loaded {$result->num_rows} links.\r\n";
 
-		$this->crawl_index = 0; 
-		$this->total_links = count($this->crawl);
-		while($this->crawl_index < $this->total_links) {
-
+		$this->current_links = count($this->crawl);
+		$this->total_links += $this->current_links;
+		while($this->crawl_index < $this->current_links) {
 			$curls = array();
-
 			$i = $this->crawl_index;
-			for($t = 0; $t < $threads; $t++){
-				if(! isset($this->crawl[$i])) break;
+
+			for($t = 0; $t < $threads && $i < $this->current_links; $t++){
+				if(preg_match('#('. $ignore_url_pattern .')#', $this->crawl[$i])) {
+					echo "Deleted: {$this->crawl[$i]}\r\n";
+					$this->db->query("DELETE FROM index_{$table} WHERE link='{$this->crawl[$i]}' ");
+					continue;
+				}
 				$curls[] = array(CURLOPT_URL => $this->crawl[$i++]);
 			}
-
-			echo "\r\nStarting {$threads} curl threads\r\n";
+			$curl_count = count($curls);
+			// echo "Starting {$curl_count} curl threads\r\n";
 			$responses = $this->curl->multi_get($curls);
 
 			$response_count = count($responses);
-			if($response_count <= 0) die('received no response');
-			echo "Received $response_count responses\r\n";
+			if($response_count <= 0) $this->quit('received no response');
+			// echo "Received $response_count responses\r\n";
 
 			foreach($responses as $response) {
-				echo "Harvesting {$this->crawl[$this->crawl_index]}\r\n";
+				echo "Crawling: {$this->crawl[$this->crawl_index]}\r\n";
 				$this->harvest($response, $this->site);
 				$this->crawl_index++;
 			}
@@ -191,7 +212,7 @@ class Sunny {
 
 			$result = $this->db->query("SELECT link FROM  index_{$this->table} WHERE link='{$l}' LIMIT 0,1");
 			if($result->num_rows <= 0){
-				echo "Queued: {$l} \r\n";
+				// echo "Queued: {$l} \r\n";
 				if($this->append_queue) $this->crawl[] = $l;
 				$iv .= "(0, '{$l}', null, SHA1('$l')),";
 				$queued++;
@@ -213,9 +234,10 @@ class Sunny {
 		}
 
 		$remaining = count($this->crawl);
-		$percent = ($this->crawl_index / $this->total_links) * 100;
+		$finished = $this->crawl_index + 1;
+		$percent = ($finished / $this->current_links) * 100;
 		$percent = number_format($percent, 2);
-		echo "Progress {$percent}% [ Index {$this->crawl_index} / Remaining {$remaining} / Found {$found} / Skipped {$skipped} / Queued {$this->queued} ]\r\n";
+		echo "Progress {$percent}% [ All {$this->total_links} / Finished {$finished} / Total {$this->current_links} / Remaining {$remaining} / Found {$found} / Skipped {$skipped} / Queued {$this->queued} ]\r\n";
 		return true;
 	}
 }
