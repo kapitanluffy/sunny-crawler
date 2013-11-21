@@ -20,3 +20,5 @@ create more crawlers for specific websites and put it in the *plugins* directory
 
 - mp3skull.com
 - musicaddict.com
+- beemp3.com
+- tumblr.com
