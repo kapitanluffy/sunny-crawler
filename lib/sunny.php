@@ -1,127 +1,222 @@
 <?php 
-include 'simple_html_dom.php';
 include 'database.php';
+include 'simple_html_dom.php';
+include 'curl_lib.php';
 
 class Sunny {
 
 	/* target site */
 	public $site;
 
+	/* table */
+	public $table;
+
 	/* storage for harvested links */
 	public $crawl = array();
+	/* current pointer for the crawl */
+	public $crawl_index = array();
 
 	/* database link */
 	public $db;
+
+	/* curl object */
+	public $curl;
+
+	private $append_queue = false;
+	protected $queued = 0;
+	protected $ignore_url_pattern = array('javascript\:','mailto\:', '\#');
+	public $total_links = 0;
+
+	/* for elapsed time */
+	public $script_start;
+	public $script_end;
 	
+	/* execute once body is harvested */
+	public function on_body($url, $body) {}
+	/* execute once links are harvested */
+	public function on_links($url, $links) {}
+
 	public function __construct($site, $db) {
+		declare(ticks = 1);
+		$this->script_start = microtime(true);
 		$this->site = $site;
 		$this->db = $db;
+		$this->curl = new curl_lib();
+
+		pcntl_signal(SIGTERM, array($this, 'quit'));
+		pcntl_signal(SIGINT, array($this, 'quit'));
 	}
 
-	public function init() {
-		echo "Setting sail..\r\n";
-		$this->harvest($this->site, $this->site);
-		$links = count($this->crawl) - 1;
+	public function init($table, $threads = 10, $limit = 100) {
+		$result = $this->db->query("SHOW TABLES LIKE '%index_{$table}%';");
 
-		for($i=0; $i <= count($this->crawl); $i++) {
-			echo "[{$i}/{$links}] Crawling {$this->crawl[$i]}\r\n";
-			$this->harvest($this->crawl[$i], $this->site);
+		if($result->num_rows <= 0) {
+			$create_index  = " create table index_{$table} (indexed int(1) default 0, link varchar(767) unique, lastcrawl timestamp default CURRENT_TIMESTAMP, hash varchar(500));";
+			$insert_url = "insert into index_{$table} values (0, '{$this->site}', CURRENT_TIMESTAMP, sha1(link));";
+			$create_storage = "create table storage_{$table} (flag int(2) default -1, artist varchar(300), title varchar(300), link varchar(300), referrer varchar(300), hash varchar(767) unique);";
+
+			$this->db->query($create_index);
+			$this->db->query($insert_url);
+			$this->db->query($create_storage);
+		}
+
+		if($this->append_queue) $this->crawl($table, $threads, $limit);
+	}
+
+	public function append_queue($bool) {
+		$this->append_queue = $bool;
+	}
+
+	public function ignore_url_pattern($patterns = array()) {
+		foreach($patterns as $pattern) {
+			$this->ignore_url_pattern[] = $pattern;
 		}
 	}
 
-	public function resume($site_id) {
-		echo "Resuming sunny..\r\n";
-		$result = $this->db->query("SELECT link FROM site_index WHERE site_id={$site_id} AND indexed=0");
+	public function sanitize_url($url) {
+		$l = strip_tags($url);
+		$l = html_entity_decode($l);
+		$l = $this->db->real_escape_string($l);
 
-		echo "Loading links from database..\r\n";
+		return $l;
+	}
+
+	public function quit($msg = '') {
+		$this->db->close();
+
+		$script_end = microtime(true);
+		$time = floor($script_end - $this->script_start);
+		$hh = 00; $mm = 00;
+		$ss = $time % 60;
+		if($ss  > 0) $mm = ($time - $ss) / 60;
+		$rm = $mm % 60;
+		if($rm  > 0) $hh = ($mm - $rm) / 60;
+		echo "{$hh}:{$mm}:{$ss}\r\n";
+		echo "{$this->crawl_index}\r\n";
+		echo "$msg\r\n";
+		exit;
+	}
+
+	public function crawl_all($table, $threads = 10, $limit = 100) {
+		$this->table = $table;
+		$offset = 0;
+		$max = $limit;
+		echo "Crawling all links! Press CTRL+C to exit\r\n";
+		do {
+			$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0 LIMIT $offset,$limit");
+			if($result->num_rows > 0) {
+				$this->_crawl_algo($result, $threads);
+			}
+			$offset += $limit;
+			$max += $limit;
+		} while($result && $result->num_rows > 0);
+	}
+
+	function _crawl_algo($result, $threads) {
 		while ($row = $result->fetch_assoc()) {
 			$this->crawl[] = $row['link'];
 		}
-		echo "Loaded {$result->num_rows} links. Resuming in 3s\r\n";
-		sleep(3);
+		echo "Loaded {$result->num_rows} links.\r\n";
 
-		for($i=0; $i <= count($this->crawl); $i++) {
-			$links = count($this->crawl) - 1;
-			echo "[{$i}/{$links}] Crawling {$this->crawl[$i]}\r\n";
-			$this->harvest($this->crawl[$i], $this->site);
-		}
-	}
+		$this->crawl_index = 0; 
+		$this->total_links = count($this->crawl);
+		while($this->crawl_index < $this->total_links) {
 
-	public function http_request($url, $options = array()) {
-		$ch = curl_init();
-		$dflt_options = array(
-			CURLOPT_URL => $url,
-			CURLOPT_RETURNTRANSFER => 1,
-			CURLOPT_CONNECTTIMEOUT => 30,
-			CURLOPT_FOLLOWLOCATION => true,
-			CURLOPT_HEADER =>1,
-		);
+			$curls = array();
 
-		foreach ($options as $option => $value) {
-			$dflt_options[$option] = $value;
-		}
+			$i = $this->crawl_index;
+			for($t = 0; $t < $threads; $t++){
+				if(! isset($this->crawl[$i])) break;
+				$curls[] = array(CURLOPT_URL => $this->crawl[$i++]);
+			}
 
-		curl_setopt_array($ch, $dflt_options);
-		$response = curl_exec($ch);
-		if(!$response || !$ch) {
-			echo curl_error($ch);
-			echo $url;
-			curl_close($ch);
-			return false;
-		}
-		
-		$header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-		$headers = substr($response, 0, $header_size);
-		$headers = explode("\r\n", $headers);
-		$response_headers = array();
-		$response_headers['status'] = array_shift($headers);
-		foreach($headers as $header) {
-			if(!@empty($header)) {
-				$h = explode(': ', $header);
-				if(count($h) > 1) $response_headers[$h[0]] = $h[1];
+			echo "\r\nStarting {$threads} curl threads\r\n";
+			$responses = $this->curl->multi_get($curls);
+
+			$response_count = count($responses);
+			if($response_count <= 0) die('received no response');
+			echo "Received $response_count responses\r\n";
+
+			foreach($responses as $response) {
+				echo "Harvesting {$this->crawl[$this->crawl_index]}\r\n";
+				$this->harvest($response, $this->site);
+				$this->crawl_index++;
 			}
 		}
-		$contents = substr($response, $header_size);
-		curl_close($ch);
-
-		return array('headers' => $response_headers, 'contents' => $contents);
 	}
 
-	public function harvest($url, $referrer) {
+	public function crawl($table, $threads = 10, $limit = 100, $offset = 0) {
+		$this->table = $table;
+		$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0 LIMIT $offset,$limit");
 
-		$options = array(
-			CURLOPT_REFERER => $referrer,
-			CURLOPT_CONNECTTIMEOUT => 10
-		);
-		$response = $this->http_request($url, $options);
-		$body = str_get_html($response['contents']);
+		$this->_crawl_algo($result, $threads);
 
-		if(! is_object($body)) {
-			echo "No response content: {$url}\r\n";
-			return false;
-		}
+		$this->quit();
+	}
 
-		if(in_array($url, $this->crawl)) {
-			$this->db->query("UPDATE site_index SET indexed = '1' WHERE link='{$url}';");
-		}
+	public function harvest($body) {
+		$url = $this->crawl[$this->crawl_index];
+		$ignore_url_pattern = implode('|', $this->ignore_url_pattern);
+
+		if(empty($body)) $this->quit("No content body {$url}");
+
+		$body = str_get_html($body);
+		$this->on_body($url, $body);
 
 		$links = $body->find('a');
+		$this->on_links($url, $body);
 
-		/* add link to queue */
-		foreach($links as $link) {
-			if(! in_array($link->href, $this->crawl) && preg_match("#^{$this->site}#", $link->href, $m))
-			{
-				$result = $this->db->query("SELECT link FROM site_index WHERE link='{$link->href}'");
-				if($result->num_rows <= 0){
-					$result = $this->db->query("INSERT INTO site_index VALUES(null, '1', '{$link->href}', '0')");
-					$this->crawl[] = $link->href;
-				} else {
-					echo "Has indexed: {$link->href}\r\n";
-				}
-			}
+		if(in_array($url, $this->crawl)) {
+			unset($this->crawl[$this->crawl_index]);
+			$this->db->query("UPDATE  index_{$this->table} SET indexed = '1', lastcrawl=CURRENT_TIMESTAMP WHERE link='{$url}';");
 		}
 
-		return $body;
+		$found = 0; $queued = 0; $skipped = 0; $iv = '';
+
+		foreach($links as $link) {
+			if(preg_match('#('. $ignore_url_pattern .')#', $link, $m)) {
+				continue;
+			}
+
+			if(! preg_match("#^http\:\/\/#", $link->href)) {
+				$link_href = ltrim($link->href, '/');
+				$link->href = $this->site . $link_href;
+			}
+
+			if(in_array($link->href, $this->crawl) || !preg_match("#^{$this->site}#", $link->href)) {
+				continue;
+			}
+
+			$l = $this->sanitize_url($link->href);
+
+			$result = $this->db->query("SELECT link FROM  index_{$this->table} WHERE link='{$l}' LIMIT 0,1");
+			if($result->num_rows <= 0){
+				echo "Queued: {$l} \r\n";
+				if($this->append_queue) $this->crawl[] = $l;
+				$iv .= "(0, '{$l}', null, SHA1('$l')),";
+				$queued++;
+			}
+		}
+		$iv = trim($iv, ',');
+		if($iv) $this->db->query("INSERT INTO index_{$this->table} VALUES $iv ON DUPLICATE KEY UPDATE lastcrawl=CURRENT_TIMESTAMP");
+		
+		if($this->db->error) {
+			echo "INSERT INTO index_{$this->table} VALUES $iv ON DUPLICATE KEY UPDATE lastcrawl=CURRENT_TIMESTAMP";
+			echo "{$this->db->error}\r\n";
+			$this->quit();
+		}
+
+		if($links) {
+			$found = count($links);
+			$skipped = $found - $queued;
+			$this->queued += $queued;
+		}
+
+		$remaining = count($this->crawl);
+		$percent = ($this->crawl_index / $this->total_links) * 100;
+		$percent = number_format($percent, 2);
+		echo "Progress {$percent}% [ Index {$this->crawl_index} / Remaining {$remaining} / Found {$found} / Skipped {$skipped} / Queued {$this->queued} ]\r\n";
+		return true;
 	}
 }
 
