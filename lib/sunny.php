@@ -36,6 +36,9 @@ class Sunny {
 	public function on_body($url, $body) {}
 	/* execute once links are harvested */
 	public function on_links($url, $links) {}
+	public function prioritize($url, $body) {
+		/* determine link priority */
+	}
 
 	public function __construct($site, $db) {
 		declare(ticks = 1);
@@ -113,12 +116,26 @@ class Sunny {
 		fclose($fh); 
 	}
 
+	public function mask($url) {
+		$a_url = parse_url($url);
+		$host = $a_url['host'];
+		preg_match_all('/(.*?)\./s', $host, $m);
+		
+		$domain = $m[1][0];
+		if(isset($m[1][1])) {
+			$domain = $m[1][1];
+		}
+		$len = strlen($domain);
+		$masked = str_pad('', $len, '*');
+		return str_replace($host,"www.$masked.com", $url);
+	}
+
 	public function crawl_all($table, $threads = 10, $limit = 100) {
 		$this->table = $table;
 		$offset = 0;
 		do {
 			echo "\r\nCrawling all links! Press CTRL+C to exit\r\n";
-			$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0 LIMIT $offset,$limit");
+			$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0 ORDER BY priority DESC LIMIT $offset,$limit");
 			if($result->num_rows > 0) {
 				$this->_crawl_algo($result, $threads);
 			}
@@ -145,7 +162,7 @@ class Sunny {
 			for($t = 0; $t < $threads && $i < $this->current_links; $t++){
 				if(preg_match('#('. $ignore_url_pattern .')#', $this->crawl[$i])) {
 					echo "Deleted: {$this->crawl[$i]}\r\n";
-					$this->db->query("DELETE FROM index_{$table} WHERE link='{$this->crawl[$i]}' ");
+					$this->db->query("DELETE FROM index_{$this->table} WHERE link='{$this->crawl[$i]}' ");
 					continue;
 				}
 				$curls[] = array(CURLOPT_URL => $this->crawl[$i++]);
@@ -159,7 +176,8 @@ class Sunny {
 			// echo "Received $response_count responses\r\n";
 
 			foreach($responses as $response) {
-				echo "Crawling: {$this->crawl[$this->crawl_index]}\r\n";
+				if(! isset($this->crawl[$this->crawl_index])) break;
+				echo "Crawling #{$this->crawl_index}: {$this->crawl[$this->crawl_index]}\r\n";
 				$this->harvest($response, $this->site);
 				$this->crawl_index++;
 			}
@@ -168,7 +186,7 @@ class Sunny {
 
 	public function crawl($table, $threads = 10, $limit = 100, $offset = 0) {
 		$this->table = $table;
-		$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0 LIMIT $offset,$limit");
+		$result = $this->db->query("SELECT link FROM index_{$this->table} WHERE indexed=0  ORDER BY priority DESC LIMIT $offset,$limit");
 
 		$this->_crawl_algo($result, $threads);
 
@@ -212,9 +230,10 @@ class Sunny {
 
 			$result = $this->db->query("SELECT link FROM  index_{$this->table} WHERE link='{$l}' LIMIT 0,1");
 			if($result->num_rows <= 0){
-				// echo "Queued: {$l} \r\n";
+				$priority = $this->prioritize($link, $body);
+				echo "Queued [P{$priority}]: {$l} \r\n";
 				if($this->append_queue) $this->crawl[] = $l;
-				$iv .= "(0, '{$l}', null, SHA1('$l')),";
+				$iv .= "(0, '{$l}', null, SHA1('$l'),0),";
 				$queued++;
 			}
 		}
@@ -222,7 +241,7 @@ class Sunny {
 		if($iv) $this->db->query("INSERT INTO index_{$this->table} VALUES $iv ON DUPLICATE KEY UPDATE lastcrawl=CURRENT_TIMESTAMP");
 		
 		if($this->db->error) {
-			echo "INSERT INTO index_{$this->table} VALUES $iv ON DUPLICATE KEY UPDATE lastcrawl=CURRENT_TIMESTAMP";
+			echo "INSERT INTO index_{$this->table} VALUES $iv ON DUPLICATE KEY UPDATE lastcrawl=CURRENT_TIMESTAMP\r\n";
 			echo "{$this->db->error}\r\n";
 			$this->quit();
 		}

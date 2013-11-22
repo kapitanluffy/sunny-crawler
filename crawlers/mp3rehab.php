@@ -28,6 +28,13 @@ class Mp3rehab extends Sunny {
 		return $return;
 	}
 
+	public function prioritize($url, $body) {
+		if(preg_match_all('#\/play\/#', $url)) {
+			return 9;
+		}
+		return 0;
+	}
+
 	public function on_body($url, $body) {
 
 		$links = $body->find('.dllink a');
