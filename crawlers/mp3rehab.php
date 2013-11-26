@@ -50,19 +50,28 @@ class Mp3rehab extends Sunny {
 		$link = $this->get_download_link($links[0], $url);
 		$meta = $this->parse_meta($metas);
 
-		if(! $link || $meta['artist'] == '') {
+		if(! $link || $meta['artist'] == '' || $meta['title'] == '') {
 			return false;
 		}
 
-		$link = $this->sanitize_url($link);
-		$artist = $this->sanitize_url($meta['artist']);
-		$title = $this->sanitize_url($meta['title']);
-		$url = $this->sanitize_url($url);
+		$hash = hash('sha1', $link);
+		
+		$artist = $this->db->real_escape_string($meta['artist']);
+		$title = $this->db->real_escape_string($meta['title']);
+		$link = $this->db->real_escape_string($link);
+		$url = $this->db->real_escape_string($url);
 
-		$this->db->query("INSERT INTO storage_{$this->table} VALUES(-1, '{$artist}', '{$title}', '{$link}', '{$url}', SHA1('{$link}')) ON DUPLICATE KEY UPDATE hash=hash");
-		if ($this->db->error) $this->quit($this->db->error);
+		$this->db->query("INSERT INTO storage_{$this->table} VALUES(-1, '{$artist}', '{$title}', '{$link}', '{$url}', '{$hash}') ON DUPLICATE KEY UPDATE hash=hash");
+		
+		if ($this->db->error) $this->quit(__LINE__ . ' ' .$this->db->error);
 
-		echo "Found! {$title} by {$artist} - {$link}\r\n";
+		$artist = $this->add_keyword($meta['artist'], $hash, 'artist');
+		$title = $this->add_keyword($meta['title'], $hash, 'title');
+		
+		$log = "Found! {$title} by {$artist} - {$link}\r\n";
+		$this->logger->write($log);
+		$this->total_found += 1;
+
 	}
 }
 

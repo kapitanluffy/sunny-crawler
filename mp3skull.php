@@ -12,6 +12,7 @@ $limit = 100;
 
 $ignore = array(
 			'4shared\.com',
+			'preview',
 		);
 
 /* create a new sunny crawler */

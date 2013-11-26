@@ -12,7 +12,8 @@ $limit = 100;
 
 $ignore = array(
 			'dl\.php', 
-			'\&amp\;sort\='
+			'\&amp\;sort\=',
+			'\/m\/play\/'
 		);
 
 /* create a new sunny crawler */
