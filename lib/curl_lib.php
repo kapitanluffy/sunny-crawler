@@ -55,7 +55,7 @@ class Curl_lib {
 			if($error == "") {
 				$this->response[$i] = curl_multi_getcontent($this->curls[$i]);
 			} else {
-				print "Curl error on handle $i: $error\n";
+				trigger_error("Curl error on handle $i: $error\n", E_USER_WARNING);
 			}
 
 			curl_multi_remove_handle($this->multi_handle, $this->curls[$i]);
@@ -82,8 +82,8 @@ class Curl_lib {
 		curl_setopt_array($this->curl, $dflt_options);
 		$response = curl_exec($this->curl);
 		if(!$response || !$this->curl) {
-			echo curl_error($this->curl);
-			echo "\r\n";
+			$error = curl_error($this->curl);
+			trigger_error("$error\n", E_USER_WARNING);
 			curl_close($this->curl);
 			return false;
 		}
